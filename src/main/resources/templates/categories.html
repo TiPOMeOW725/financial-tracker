@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Manage Categories</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+<h1>Manage Categories</h1>
+<a href="/" class="button">← Back to Dashboard</a>
+
+<div th:if="${successMessage}" class="alert alert-success" th:text="${successMessage}"></div>
+<div th:if="${errorMessage}" class="alert alert-danger" th:text="${errorMessage}"></div>
+
+<div class="container">
+    <div class="column">
+        <h2>Add New Category</h2>
+        <form action="#" th:action="@{/categories/add}" th:object="${newCategory}" method="post">
+            <label for="name">Category Name:</label>
+            <input type="text" th:field="*{name}" required />
+
+            <label for="type">Category Type:</label>
+            <select th:field="*{type}" required>
+                <option value="">-- Select Type --</option>
+                <option value="INCOME">INCOME</option>
+                <option value="EXPENSE">EXPENSE</option>
+            </select>
+
+            <button type="submit">Add Category</button>
+        </form>
+    </div>
+
+    <div class="column">
+        <h2>Existing Categories</h2>
+        <table>
+            <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Actions</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:if="${#lists.isEmpty(categories)}">
+                <td colspan="3">No categories found.</td>
+            </tr>
+            <tr th:each="cat : ${categories}">
+                <td th:text="${cat.name}"></td>
+                <td th:text="${cat.type}"></td>
+                <td>
+                    <a th:href="@{/categories/edit/{id}(id=${cat.id})}" class="button-edit">Edit</a>
+                    <a th:href="@{/categories/delete/{id}(id=${cat.id})}" class="button-delete" onclick="return confirm('Are you sure? Deleting a category with transactions will fail.');">Delete</a>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>
