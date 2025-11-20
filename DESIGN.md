@@ -1,231 +1,204 @@
-# The financial tracker project
+# The Financial Tracker Project
 
 ## Introduction
-This document will describe the design I've developed for my university project. Here are the requirements for the project:
+This document outlines the architectural design of the Financial Tracker application. The project requirements specify a relational database with two tables, a Spring Boot backend, and a server-side rendered frontend. The application is designed to demonstrate full database CRUD operations without reliance on external APIs.
 
-- Relational database
-- 2 tables in relation
-- Spring Boot as backend framework
-- CRUD operation on tables
-- Frontend is required
-- Any frontend framework may be used
-- The project doesn't have to use external APIs
-- The project must be published on GitHub or Gitlab for presentation and defense
-- Repository must be public
-- The database dump must be included in the repository (Located at "/database-dump.sql" in project root, with auto-loading configuration in "/src/main/resources/data.sql")
+### Core Features
+- **Transaction Management:** Add, View, Edit, Delete, and Find transactions.
+- **Analytics:** Sort categories by expense volume.
 
-According to these requirements, I have decided to build a personal finance tracker app. Project goal is to create a minimum viable web app that will demonstrate work databases.
+### Architectural Flow
+User -> Frontend -> Controllers -> Services -> Repositories -> Database
 
-Core features:
-
-- Add transaction
-- View transactions
-- Edit transactions
-- Delete transaction
-- Find transaction
-- Sort categories by expenses
-
-Textual diagram of the architecture: User -> Frontend -> Controllers -> Services -> Repositories -> DB
-
-In the following sections I will be describing architecture in the next sequence: DB -> Repositories -> Services -> Controllers -> Frontend
+```mermaid
+graph LR
+    A[User] --> B[Frontend]
+    B --> C[Controllers]
+    C --> D[Services]
+    D --> E[Repositories]
+    E --> F[(Database)]
+```
 
 ## Database Design
 
-In this section I will provide a comprehensive overview of the relational database design used in this project. For relational support I will use H2 database.
+This section provides a comprehensive overview of the relational database design. The project utilizes the H2 database engine for data storage.
 
 ### Core Entities
 
-The database needs 2 tables representing 2 core entities in application's logic:
-1. Categories
-2. Transactions
+The database consists of two tables representing the core entities within the application logic:
+1.  **Categories**
+2.  **Transactions**
 
-The relation between entities in JPA will be unidirectional from categories to transactions.
+The relationship between entities is defined in JPA as unidirectional from Categories to Transactions.
 
 #### Relations
+The relationship schema is as follows:
+`Categories --(1:M)--> Transactions`
 
-Here's the relations between these 2 tables:
-Categories --(1:M)--> Transactions
+#### Database Schema
+The following list details the SQL attributes for each table using the format: `[Column Name]: [Type] ([Attributes])`.
 
-#### DB Attributes
+- **Categories:**
+    1.  `id`: bigint (auto increment; unique)
+    2.  `type`: varchar(12) (not null)
+    3.  `name`: varchar(50) (not null, unique)
 
-In this section I will describe columns SQL attributes for each tables in the next format - [Column's name]: [Variable type] ([Attributes])
+- **Transactions:**
+    1.  `id`: bigint (auto increment; unique)
+    2.  `category_id`: bigint (not null; foreign key references Categories(id), on delete restrict, create index)
+    3.  `description`: varchar(100) (default null)
+    4.  `amount`: decimal(10,2) (not null; check (amount >= 0))
+    5.  `time`: timestamp (default current_timestamp, not null)
 
-- Categories:
-    1. id: bigint (auto increment; unique)
-    2. type: varchar(12) (not null)
-    3. name: varchar(50) (not null, unique)
-- Transactions:
-    1. id: bigint (auto increment; unique)
-    2. category_Id: bigint (not null; foreign key from Categories(id), on delete restrict, create index)
-    3. description: varchar(100) (default null)
-    4. amount: decimal(10,2) (not null; check (amount >= 0))
-    5. time: timestamp (default current_timestamp, not null)
-
-Amount column in transactions table uses decimal to avoid errors in rounding.
+The `amount` column utilizes the `decimal` type to ensure precision and avoid rounding errors common with floating-point types.
 
 #### Table Mapping to Classes
+The following outlines the Object-Relational Mapping (ORM) of tables to Java classes using JPA.
 
-In this section I will describe table mapping to Java classes using JPA for ORM:
-Classes:
+**Class: Category**
+```java
+@Entity
+@Table(name = "categories")
+public class Category {
 
-        - @Entity
-          @Table(name = "categories")
-        Category:
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-            @Id
-            @GeneratedValue(strategy = GenerationType.IDENTITY)
-            1. id: Long
+    @Enumerated(EnumType.STRING)
+    @Column(name = "type", nullable = false, length = 12)
+    private CategoryType type; // Enum: INCOME, EXPENSE
 
-            @Enumerated(EnumType.STRING)
-            @Column(name = "type", nullable = false, length = 12)
-            2. type: enum(INCOME, EXPENSE)
+    @Column(name = "name", nullable = false, unique = true, length = 50)
+    private String name;
+}
+```
 
-            @Column(name = "name", nullable = false, unique = true, length = 50)
-            3. name: String
+**Class: Transaction**
+```java
+@Entity
+@Table(name = "transactions")
+public class Transaction {
 
-        - @Entity @Table(name = "transactions")
-        Transaction:
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-            @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
-            1. id: Long
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id", nullable = false)
+    private Category category;
 
-            @ManyToOne(fetch = FetchType.LAZY)
-            @JoinColumn(name = "category_id", nullable = false)
-            2. category: Category
+    @Column(name = "description", length = 100)
+    private String description;
 
-            @Column(name = "description", length = 100)
-            3. description: String
+    @Column(name = "amount", precision = 10, scale = 2)
+    private BigDecimal amount;
 
-            @Column (name ="amount", precision = 10, scale = 2)
-            4. amount: BigDecimal
-
-            @Columnm(name = "time", nullable = false)
-            5. time: Instant
+    @Column(name = "time", nullable = false)
+    private Instant time;
+}
+```
 
 #### Repositories
 
-This section describes Spring Boot repositories to access data from the tables following DAO pattern:
+Spring Boot repositories facilitate data access following the DAO pattern:
 
-- CategoryRepository:
-    - Default CRUD methods
+- **CategoryRepository:**
+    - Standard `JpaRepository` CRUD methods.
     - Custom methods:
-        - Optional<Category> findByName (String name)
-        - List<Category> findByType(CategoryType type)
+        - `Optional<Category> findByName(String name)`
+        - `List<Category> findByType(CategoryType type)`
 
-- TransactionRepository:
-    - Default CRUD methods
+- **TransactionRepository:**
+    - Standard `JpaRepository` CRUD methods.
     - Custom methods:
-        - List<Transaction> findByCategory(Category category)
-        - List<Transaction> findByCategoryId(Long categoryId)
-        - Boolean existsByCategoryId(Long categoryId)
-        - List<Transaction> findAllByOrderByTimeDesc()
+        - `List<Transaction> findByCategory(Category category)`
+        - `List<Transaction> findByCategoryId(Long categoryId)`
+        - `Boolean existsByCategoryId(Long categoryId)`
+        - `List<Transaction> findAllByOrderByTimeDesc()`
 
-
-
-
-#### Database Dump
-
-The project includes two SQL files for database initialization and documentation:
-
-"src/main/resources/data.sql" file automatically fills the database with sample data on application startup. It contains INSERT statements only, as the table schema is automatically generated by JPA from entity classes.
+#### Database Initialization
+The project includes SQL files for initialization:
+- `src/main/resources/data.sql`: Automatically populates the database with sample data upon application startup. This file contains `INSERT` statements only, as the schema is generated automatically by JPA.
 
 ## Service Design
 
-This section will describe the service layer of the project, it holds all essential "business logic".
+This section describes the service layer, which encapsulates the core business logic of the application.
 
 ### Data Transfer Objects (DTOs)
 
-Before going straight into service logic I will define the DTOs, these are intermediate objects between JPA entities and frontend.
+DTOs serve as intermediate objects between JPA entities and the frontend/API consumers.
 
-CategoryDTO is representation of category:
-
+**CategoryDTO:** Represents a category.
 ```
-    + class CategoryDTO:
-        // Attributes
-        - Long id
-        - String name
-        - CategoryType type
+class CategoryDTO:
+    - Long id
+    - String name
+    - CategoryType type
 ```
 
-CategoryRequestDTO will be used for updating or creating a category:
-
+**CategoryRequestDTO:** Handles creation and updates for categories.
 ```
-    + class CategoryRequestDTO:
-        // Attributes
-        - String name
-        - CategoryType type
+class CategoryRequestDTO:
+    - String name
+    - CategoryType type
 ```
 
-CategoryExpenseSummaryDTO is a special DTO for aggregated data:
-
+**CategoryExpenseSummaryDTO:** Represents aggregated analytical data.
 ```
-    + class CategoryExpenseSummaryDTO:
-    // Attributes
+class CategoryExpenseSummaryDTO:
     - Long categoryId
     - String categoryName
     - BigDecimal totalExpenses
 ```
 
-TransactionDTO is representation of transaction:
-
+**TransactionDTO:** Represents a transaction, including flattened category details.
 ```
-    + class TransactionDTO:
-        // Attributes
-        - Long id
-        - String description
-        - BigDecimal amount
-        - Instant time
-
-        // Information from Category
-        - Long categoryId
-        - String categoryName
-        - CategoryType categoryType
+class TransactionDTO:
+    - Long id
+    - String description
+    - BigDecimal amount
+    - Instant time
+    - Long categoryId
+    - String categoryName
+    - CategoryType categoryType
 ```
 
-TransactionRequestDTO will be used by the frontend to interact with update or create a transaction:
-
+**TransactionRequestDTO:** Handles creation and updates for transactions.
 ```
-    + class TransactionRequestDTO:
-    // Attributes
+class TransactionRequestDTO:
     - String description
     - BigDecimal amount
     - Long categoryId
     - Instant time
 ```
 
-ErrorResponceDTO will be use by the exception handler
+**ErrorResponseDTO:** Standardizes error responses from the exception handler.
 ```
-  + class ErrorResponseDto
-  // Attributes
-      - Instant timestamp
-      - int status
-      - String error
-      - String message
-      - String path
+class ErrorResponseDTO:
+    - Instant timestamp
+    - int status
+    - String error
+    - String message
+    - String path
 ```
 
-### Mapping Entities to DTOs and vice versa
+### Mapping Entities to DTOs
 
-Instead of manually connecting JPA entities to DTOs I will use special mapping insterface called `MapStruct`. In this section I will define mappers.
+The project uses `MapStruct` to automate mapping between entities and DTOs.
 
-Here's the mapper for categories:
-
+**CategoryMapper**
 ```java
 @Mapper(componentModel = "spring")
 public interface CategoryMapper {
-    // Maps Entity -> DTO
     CategoryDTO toDto(Category category);
-
-    // Maps a List of Entities -> List of DTOs
     List<CategoryDTO> toDtoList(List<Category> categories);
-
-    // Maps Request DTO -> Entity
     Category toEntity(CategoryRequestDTO requestDto);
 }
 ```
 
-Transaction mapper uses more difficult logic, since it has nested information from categories:
-
+**TransactionMapper**
+The transaction mapper implements logic to map nested category information.
 ```java
 @Mapper(componentModel = "spring", uses = {CategoryMapper.class})
 public interface TransactionMapper {
@@ -236,20 +209,15 @@ public interface TransactionMapper {
 
     List<TransactionDTO> toDtoList(List<Transaction> transactions);
 
-    // For converting the Request DTO, we ignore the category field
-    // because we will set it manually in the service layer.
+    // The category field is ignored here as it is resolved manually in the service layer
     @Mapping(target = "category", ignore = true)
     Transaction toEntity(TransactionRequestDTO requestDto);
 }
 ```
 
-### Services
+### Service Interfaces
 
-The services contain the logic of the application, they work with data and present it through frontend. I will separate actual implementation of the logic through interfaces.
-
-#### Interfaces
-
-I this section I will describe the interaces separating the implementation logic:
+Interfaces are used to decouple the implementation logic.
 
 ```java
 public interface CategoryService {
@@ -260,8 +228,6 @@ public interface CategoryService {
     void deleteCategory(Long id);
 }
 ```
-
-
 
 ```java
 public interface TransactionService {
@@ -274,306 +240,166 @@ public interface TransactionService {
     // Business Logic Method
     List<CategoryExpenseSummaryDTO> getCategoryExpenseSummary();
 }
-
 ```
 
-#### Service Implementation Logic
+### Service Implementation Logic
 
-In this section I will describe the implemented logic of the application in the next format (custom exceptions are below the implementation):
+The following section outlines the implementation logic for the service classes.
 
-@[Annotations]
-[Class]{
-[Methods and description of their work]
-}
+#### CategoryServiceImpl
+Annotation: `@Service`, `@Transactional`
 
-##### CategoryServiceImpl
+1.  **`createCategory(CategoryRequestDTO request)`**
+    -   Validate name uniqueness via `CategoryRepository.findByName()`.
+    -   Map DTO to Entity.
+    -   Save to DB.
+    -   Return mapped DTO.
+    -   *Exception:* `DuplicateResourceException` if name exists.
 
-@Service
-@Transactional
-public class CategoryServiceImpl implements CategoryService
+2.  **`getAllCategories()`**
+    -   Fetch all entities.
+    -   Return list of mapped DTOs.
 
-1. CategoryDTO createCategory (CategoryRequestDTO request)
-    - Validate that no category with the same name already exists (using CategoryRepository.findByName())
-    - Convert CategoryRequestDTO to Category entity using CategoryMapper
-    - Save the entity using CategoryRepository.save()
-    - Convert saved entity back to CategoryDTO and return
-    - Throws: DuplicateResourceException if name already exists
+3.  **`getCategoryById(Long id)`**
+    -   Find by ID.
+    -   *Exception:* `ResourceNotFoundException` if invalid ID.
+    -   Return mapped DTO.
 
-2. List<CategoryDto> getAllCategories()
-    - Fetch all categories using CategoryRepository.findAll()
-    - Convert list of entities to list of DTOs using CategoryMapper.toDtoList()
-    - Return the DTO list (empty list if no categories exist)
+4.  **`updateCategory(Long id, CategoryRequestDTO request)`**
+    -   Retrieve existing entity.
+    -   Validate name uniqueness (if name changed).
+    -   Update fields.
+    -   Save and return DTO.
+    -   *Exceptions:* `ResourceNotFoundException`, `DuplicateResourceException`.
 
-3. CategoryDto getCategoryById(Long id)
-    - Find category using CategoryRepository.findById(id)
-    - If not found, throw ResourceNotFoundException with message "Category not found with id: {id}"
-    - Convert found entity to CategoryDTO and return
+5.  **`deleteCategory(Long id)`**
+    -   Validate existence.
+    -   Verify no associated transactions exist via `TransactionRepository.existsByCategoryId()`.
+    -   Delete entity.
+    -   *Exceptions:* `ResourceNotFoundException`, `BusinessLogicException` (if foreign key constraint would be violated).
 
-4. CategoryDto updateCategory(Long id, CategoryRequestDTO request)
-    - Find existing category by id (throw ResourceNotFoundException if not found)
-    - Check if new name conflicts with another category (if name is being changed)
-    - Update the entity fields with values from request
-    - Save updated entity
-    - Convert to CategoryDTO and return
-    - Throws: ResourceNotFoundException, DuplicateResourceException
+#### TransactionServiceImpl
+Annotation: `@Service`, `@Transactional`
 
-5. void deleteCategory(Long id)
-    - Check if category exists (throw ResourceNotFoundException if not)
-    - Check if category has associated transactions using TransactionRepository.existsByCategoryId()
-    - If transactions exist, throw BusinessLogicException with message "Cannot delete category with existing transactions"
-    - Delete category using CategoryRepository.delete(category)
-    - Throws: ResourceNotFoundException, BusinessLogicException
+1.  **`createTransaction(TransactionRequestDTO request)`**
+    -   Validate existence of `categoryId`.
+    -   Map DTO to Entity; manually set the Category entity.
+    -   Default `time` to `Instant.now()` if null.
+    -   Save and return DTO.
+    -   *Exception:* `ResourceNotFoundException` (for invalid Category).
 
-##### TransactionServiceImpl
+2.  **`getAllTransactions()`**
+    -   Fetch all via repository.
+    -   Return DTOs sorted by time (recent first).
 
-@Service
-@Transactional
-public class TransactionServiceImpl implements TransactionService
+3.  **`getTransactionById(Long id)`**
+    -   Find by ID.
+    -   *Exception:* `ResourceNotFoundException`.
 
-1. createTransaction(TransactionRequestDTO request)
-    - Validate that categoryId is not null
-    - Find category by categoryId (throw ResourceNotFoundException if not found)
-    - Convert TransactionRequestDTO to Transaction entity using TransactionMapper
-    - Manually set the category on the transaction entity (since mapper ignores it)
-    - If request.time is null, set it to Instant.now() as default
-    - Save the entity using TransactionRepository.save()
-    - Convert saved entity to TransactionDTO and return
-    - Throws: ResourceNotFoundException if category doesn't exist
+4.  **`updateTransaction(Long id, TransactionRequestDTO request)`**
+    -   Retrieve existing transaction.
+    -   Update fields.
+    -   If `categoryId` changed, fetch and set the new Category entity.
+    -   Save and return DTO.
+    -   *Exception:* `ResourceNotFoundException`.
 
-2. getAllTransactions()
-    - Fetch all transactions using TransactionRepository.findAll()
-    - Convert list of entities to DTOs using TransactionMapper.toDtoList()
-    - Return the DTO list sorted by time (most recent first)
+5.  **`deleteTransaction(Long id)`**
+    -   Validate existence.
+    -   Delete by ID.
 
-3. getTransactionById(Long id)
-    - Find transaction using TransactionRepository.findById(id)
-    - If not found, throw ResourceNotFoundException
-    - Convert entity to TransactionDTO and return
-
-4. updateTransaction(Long id, TransactionRequestDTO request)
-    - Find existing transaction by id (throw ResourceNotFoundException if not found)
-    - If categoryId changed, validate new category exists
-    - Update transaction fields with values from request
-    - If category changed, fetch and set new category entity
-    - Save updated entity
-    - Convert to TransactionDTO and return
-    - Throws: ResourceNotFoundException
-
-5. deleteTransaction(Long id)
-    - Check if transaction exists (throw ResourceNotFoundException if not)
-    - Delete transaction using TransactionRepository.deleteById(id)
-    - No restrictions on deletion
-
-6. getCategoryExpenseSummary() (Business Logic Method)
-    - Fetch all categories of type EXPENSE using CategoryRepository.findByType(CategoryType.EXPENSE)
-    - For each expense category:
-        - Find all transactions for this category using TransactionRepository.findByCategory(category)
-        - Sum the amounts using Java stream
-        - Create CategoryExpenseSummaryDTO with categoryId, categoryName, and totalExpenses
-    - Sort the list by totalExpenses in descending order (highest expenses first)
-    - Return the sorted list
-
-7. getTransactionsByCategory(Long id)
-    - Validate category exists
-    - Fetch transactions
-    - Convert List<Transaction> to DTO and return
-    - Throws: ResourceNotFoundException
+6.  **`getCategoryExpenseSummary()`**
+    -   Fetch categories with type `EXPENSE`.
+    -   For each category, fetch associated transactions.
+    -   Calculate sum of amounts.
+    -   Map to `CategoryExpenseSummaryDTO`.
+    -   Return list sorted by total expense (descending).
 
 ### Exception Handling
 
-I will use custom exceptions to ease understanding the of potential errors:
+Custom exceptions are utilized to enhance error reporting:
 
-1. ResourceNotFoundException
-    - Thrown when a requested entity doesn't exist
-    - HTTP Status: 404 NOT FOUND
+1.  **`ResourceNotFoundException` (HTTP 404):** Entity does not exist.
+2.  **`DuplicateResourceException` (HTTP 409):** Unique constraint violation (e.g., duplicate category name).
+3.  **`BusinessLogicException` (HTTP 400):** Violation of business rules (e.g., deleting a category that has transactions).
 
-2. DuplicateResourceException
-    - Thrown when trying to create/update with a duplicate unique value
-    - HTTP Status: 409 CONFLICT
-
-3. BusinessLogicException
-    - Thrown when a business rule is violated
-    - HTTP Status: 400 BAD REQUEST
-
-I will use @RestControllerAdvice to handle these custom exceptions.
+These are handled globally via `@RestControllerAdvice`.
 
 ## Controllers (API Endpoints)
 
-This section describes controllers, they are responsible for interaction with "outside world".
+The controllers manage interaction with external clients and define the API contract.
 
 ### API Endpoint Design
 
 #### Category Endpoints
-
-1. GET /api/categories
-    - Returns: List<CategoryDTO>
-    - Purpose: Get all categories
-
-2. GET /api/categories/{id}
-    - Returns: CategoryDTO
-    - Purpose: Get specific category details
-
-3. POST /api/categories
-    - Accepts: CategoryRequestDTO (in request body)
-    - Returns: CategoryDTO (created category)
-    - Purpose: Create new category
-
-4. PUT /api/categories/{id}
-    - Accepts: CategoryRequestDTO (in request body)
-    - Returns: CategoryDTO (updated category)
-    - Purpose: Update existing category
-
-5. DELETE /api/categories/{id}
-    - Returns: HTTP 204 No Content (on success)
-    - Purpose: Delete category (if no transactions exist)
+-   `GET /api/categories`: Retrieve all categories.
+-   `GET /api/categories/{id}`: Retrieve specific category.
+-   `POST /api/categories`: Create a category.
+-   `PUT /api/categories/{id}`: Update a category.
+-   `DELETE /api/categories/{id}`: Delete a category (returns HTTP 204).
 
 #### Transaction Endpoints
-
-1. GET /api/transactions
-    - Returns: List<TransactionDTO>
-    - Purpose: Get all transactions
-
-2. GET /api/transactions/{id}
-    - Returns: TransactionDTO
-    - Purpose: Get specific transaction details
-
-3. POST /api/transactions
-    - Accepts: TransactionRequestDTO (in request body)
-    - Returns: TransactionDTO (created transaction)
-    - Purpose: Create new transaction
-
-4. PUT /api/transactions/{id}
-    - Accepts: TransactionRequestDTO (in request body)
-    - Returns: TransactionDTO (updated transaction)
-    - Purpose: Update existing transaction
-
-5. DELETE /api/transactions/{id}
-    - Returns: HTTP 204 No Content (on success)
-    - Purpose: Delete transaction
-
-6. GET /api/transactions/category/{categoryId}
-    - Returns: List<TransactionDTO>
-    - Purpose: Find transactions by category (for your find transaction feature)
+-   `GET /api/transactions`: Retrieve all transactions.
+-   `GET /api/transactions/{id}`: Retrieve specific transaction.
+-   `POST /api/transactions`: Create a transaction.
+-   `PUT /api/transactions/{id}`: Update a transaction.
+-   `DELETE /api/transactions/{id}`: Delete a transaction (returns HTTP 204).
+-   `GET /api/transactions/category/{categoryId}`: Retrieve transactions filtered by category.
 
 #### Business Logic Endpoints
+-   `GET /api/categories/expenses/summary`: Returns `CategoryExpenseSummaryDTO` list for analytics.
 
-1. GET /api/categories/expenses/summary
-    - Returns: List<CategoryExpenseSummaryDTO>
-    - Purpose: Sort categories by expenses feature
-
-### Error Handling in Controllers
-
-- ResourceNotFoundException: 404 with error message
-- DuplicateResourceException: 409 with error message
-- BusinessLogicException: 400 with error message
-- ValidationException: 400 with field errors
-- Generic Exception: 500 with generic message
+### Error Handling
+The controllers return consistent HTTP status codes and error messages via the global exception handler:
+-   **404**: Resource Not Found.
+-   **409**: Duplicate Resource.
+-   **400**: Business Logic or Validation Error.
+-   **500**: Generic Server Error.
 
 ## Frontend Layer
 
-This section describes the web interface layer of the application, which uses server side rendering with Thymeleaf templates.
+The frontend utilizes server-side rendering with Thymeleaf templates.
 
 ### Data Binding
-
-The controller uses @InitBinder to handle conversion between HTML inputs and Java types:
+Controllers use `@InitBinder` to manage conversation between HTML form inputs and Java types (e.g., String to Date).
 
 ### View Routes and Handlers
 
-#### Main Page
-
-1. GET /
-    - Purpose: Display main dashboard with transactions and summary
-    - Model Attributes:
-    - transactions - List<TransactionDTO> (all transactions)
-    - summary - List<CategoryExpenseSummaryDTO> (expense summary by category)
-    - categories - List<CategoryDTO> (for dropdown)
-    - newTransaction - empty TransactionRequestDTO
-    - Returns: index template
+#### Main Dashboard
+-   **`GET /`**: Displays the dashboard.
+    -   *Model:* All transactions, expense summary, category dropdown list, empty `TransactionRequestDTO`.
+    -   *Template:* `index.html`
 
 #### Transaction Management
-
-1. POST /transactions/add
-    - Purpose: Create new transaction from form
-    - Accepts: @ModelAttribute TransactionRequestDTO
-    - Success: Redirects to "/" with success flash message
-    - Returns: redirect:/
-
-2. GET /transactions/edit/{id}
-    - Purpose: Show edit form for existing transaction
-    - Model Attributes:
-    - transactionId - Long (transaction ID)
-    - transactionRequest - TransactionRequestDTO (pre-filled)
-    - categories - List<CategoryDTO> (for dropdown)
-    - Returns: edit-transaction template
-
-3. POST /transactions/update/{id}
-    - Purpose: Update existing transaction from form
-    - Accepts: @ModelAttribute TransactionRequestDTO
-    - Success: Redirects to "/" with success flash message
-    - Returns: redirect:/
-
-4. GET /transactions/delete/{id}
-    - Purpose: Delete transaction
-    - Success: Redirects to "/" with success flash message
-    - Returns: redirect:/
+-   **`POST /transactions/add`**: Processes creation form. Redirects to root on success.
+-   **`GET /transactions/edit/{id}`**: Displays edit form.
+    -   *Template:* `edit-transaction.html`
+-   **`POST /transactions/update/{id}`**: Processes update form. Redirects to root on success.
+-   **`GET /transactions/delete/{id}`**: Deletes transaction. Redirects to root on success.
 
 #### Category Management
-
-1. GET /categories
-    - Purpose: Display category management page
-    - Model Attributes:
-    - categories - List<CategoryDTO> (existing categories)
-    - newCategory - empty CategoryRequestDTO (for add form)
-    - Returns: categories template
-
-2. POST /categories/add
-    - Purpose: Create new category from form
-    - Accepts: @ModelAttribute CategoryRequestDTO
-    - Success/Error: Redirects to "/categories" with flash message
-    - Exception Handling: Catches exceptions and displays error messages
-    - Returns: redirect:/categories
-
-3. GET /categories/edit/{id}
-    - Purpose: Show edit form for existing category
-    - Model Attributes:
-    - categoryId - Long (category ID)
-    - categoryRequest - CategoryRequestDTO (pre-filled with name and type)
-    - Returns: edit-category template
-
-4. POST /categories/update/{id}
-    - Purpose: Update existing category from form
-    - Accepts: @ModelAttribute CategoryRequestDTO
-    - Success/Error: Redirects to "/categories" with flash message
-    - Exception Handling: Catches exceptions and displays error messages
-    - Returns: redirect:/categories
-
-5. GET /categories/delete/{id}
-    - Purpose: Delete category
-    - Success/Error: Redirects to "/categories" with flash message
-    - Exception Handling: Catches BusinessLogicException if category has transactions
-    - Returns: redirect:/categories
+-   **`GET /categories`**: Displays management page.
+    -   *Model:* Existing categories, empty `CategoryRequestDTO`.
+    -   *Template:* `categories.html`
+-   **`POST /categories/add`**: Processes creation form.
+-   **`GET /categories/edit/{id}`**: Displays edit form.
+    -   *Template:* `edit-category.html`
+-   **`POST /categories/update/{id}`**: Processes update form.
+-   **`GET /categories/delete/{id}`**: Deletes category. Catches `BusinessLogicException` if transactions exist and displays an error flash message.
 
 ### Flash Attributes
-
-The controller uses RedirectAttributes to pass temporary messages between redirects:
-
-- successMessage - Displayed as green alert on success
-- errorMessage - Displayed as red alert on errors
+`RedirectAttributes` are used to pass temporary messages across redirects:
+-   `successMessage`: Rendered as a green alert.
+-   `errorMessage`: Rendered as a red alert.
 
 ### Form Binding Pattern
-
-The controller uses the next algorithm for form handling to prevent duplicate submissions on page refresh:
-
-1. Display Form: GET endpoint adds empty DTO to model
-2. Submit Form: POST endpoint receives @ModelAttribute with bound data
-3. Process: Calls service layer method
-4. Redirect: Returns redirect with flash message
+The controllers implement the Post-Redirect-Get (PRG) pattern to prevent duplicate form submissions:
+1.  **GET:** Display form with empty/populated DTO.
+2.  **POST:** Receive bound data via `@ModelAttribute`.
+3.  **Process:** Service layer execution.
+4.  **Redirect:** Return redirect URL with flash attributes for the next request.
 
 ### Templates
-
-The list of the rendered templates:
-
-- index.html - Main dashboard
-- edit-transaction.html - Transaction edit form
-- categories.html - Category management page
-- edit-category.html - Category edit form
+-   `index.html`: Main dashboard.
+-   `edit-transaction.html`: Transaction modification form.
+-   `categories.html`: Category list and creation form.
+-   `edit-category.html`: Category modification form.
